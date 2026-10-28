@@ -1,7 +1,21 @@
-import React from 'react';
-import { Sparkles, Share2, Printer, PlusCircle } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Sparkles, Share2, Printer, PlusCircle, User, LogOut, HardDrive, ChevronDown } from 'lucide-react';
 
-export default function Navbar({ onNewPlan, onExport, onShare, currentPlan }) {
+export default function Navbar({ onNewPlan, onExport, onShare, currentPlan, currentUser, onOpenLogin, onLogout }) {
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const menuRef = useRef(null);
+
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setShowProfileMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   return (
     <header className="no-print" style={{
       borderBottom: '1px solid rgba(255,255,255,0.08)',
@@ -101,6 +115,140 @@ export default function Navbar({ onNewPlan, onExport, onShare, currentPlan }) {
             <PlusCircle style={{ width: '14px', height: '14px' }} />
             <span>{currentPlan ? 'New Event' : 'Get Started'}</span>
           </button>
+
+          {/* User Profile / Login Button */}
+          {currentUser ? (
+            <div style={{ position: 'relative' }} ref={menuRef}>
+              <button
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                id="btn-user-profile"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.45rem',
+                  padding: '0.45rem 0.8rem', borderRadius: '10px', cursor: 'pointer',
+                  background: 'rgba(255, 255, 255, 0.06)', border: '1px solid rgba(255, 255, 255, 0.12)',
+                  color: '#ffffff', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s'
+                }}
+                title="Your on-device account"
+              >
+                <span style={{ fontSize: '1rem' }}>{currentUser.avatar || '✨'}</span>
+                <span style={{ maxWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {currentUser.name ? currentUser.name.split(' ')[0] : 'User'}
+                </span>
+                <ChevronDown style={{ width: 12, height: 12, color: '#94a3b8' }} />
+              </button>
+
+              {/* Profile Dropdown */}
+              {showProfileMenu && (
+                <div style={{
+                  position: 'absolute',
+                  top: '120%',
+                  right: 0,
+                  width: '260px',
+                  backgroundColor: '#0c0e18',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '16px',
+                  boxShadow: '0 20px 45px rgba(0,0,0,0.85), 0 0 30px rgba(147, 51, 234, 0.15)',
+                  padding: '1rem',
+                  zIndex: 50,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.75rem'
+                }}>
+                  {/* User Info */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <div style={{
+                      width: '38px', height: '38px', borderRadius: '10px',
+                      background: 'rgba(147, 51, 234, 0.2)', border: '1px solid rgba(147, 51, 234, 0.4)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '1.2rem'
+                    }}>
+                      {currentUser.avatar || '✨'}
+                    </div>
+                    <div style={{ overflow: 'hidden' }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#ffffff', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                        {currentUser.name}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: '#94a3b8', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                        {currentUser.email}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Device Storage Badge */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '0.4rem',
+                    padding: '0.45rem 0.65rem', borderRadius: '8px',
+                    background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.25)',
+                    color: '#6ee7b7', fontSize: '0.7rem'
+                  }}>
+                    <HardDrive style={{ width: 13, height: 13, flexShrink: 0 }} />
+                    <span>Stored only on this device</span>
+                  </div>
+
+                  <div style={{ height: '1px', backgroundColor: 'rgba(255, 255, 255, 0.08)' }} />
+
+                  {/* Switch Account / Sign Out */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        onOpenLogin();
+                      }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        padding: '0.45rem 0.65rem', borderRadius: '8px',
+                        background: 'transparent', border: 'none',
+                        color: '#cbd5e1', fontSize: '0.775rem', cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <User style={{ width: 14, height: 14, color: '#c084fc' }} />
+                      <span>Switch Account</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        onLogout();
+                      }}
+                      id="btn-logout"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        padding: '0.45rem 0.65rem', borderRadius: '8px',
+                        background: 'transparent', border: 'none',
+                        color: '#f87171', fontSize: '0.775rem', cursor: 'pointer',
+                        textAlign: 'left'
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                    >
+                      <LogOut style={{ width: 14, height: 14 }} />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={onOpenLogin}
+              id="btn-open-login"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                padding: '0.5rem 0.95rem', borderRadius: '10px', cursor: 'pointer',
+                background: 'rgba(255, 255, 255, 0.06)', border: '1px solid rgba(255, 255, 255, 0.12)',
+                color: '#cbd5e1', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s'
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)'; e.currentTarget.style.color = '#fff'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; e.currentTarget.style.color = '#cbd5e1'; }}
+              title="Sign in or create on-device account"
+            >
+              <User style={{ width: '14px', height: '14px', color: '#c084fc' }} />
+              <span>Sign In</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

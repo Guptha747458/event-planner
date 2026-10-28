@@ -5,8 +5,12 @@ import HeroSearch from './components/HeroSearch.jsx';
 import PlanningDashboard from './components/PlanningDashboard.jsx';
 import ExportModal from './components/ExportModal.jsx';
 import ShareModal from './components/ShareModal.jsx';
+import LoginPage from './components/LoginPage.jsx';
+import { getCurrentUser, logoutUser, savePlanToUserHistory } from './utils/localAuth.js';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(() => getCurrentUser());
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [currentPlan, setCurrentPlan] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefiningBudget, setIsRefiningBudget] = useState(false);
@@ -36,6 +40,9 @@ export default function App() {
       const data = await res.json();
       if (data.success && data.plan) {
         setCurrentPlan(data.plan);
+        if (currentUser) {
+          savePlanToUserHistory(currentUser.id, data.plan);
+        }
         showToast('Plan loaded from shareable link!', 'success');
       } else {
         showToast('Plan not found. Creating a new plan...', 'error');
@@ -61,6 +68,9 @@ export default function App() {
 
       if (data.success && data.plan) {
         setCurrentPlan(data.plan);
+        if (currentUser) {
+          savePlanToUserHistory(currentUser.id, data.plan);
+        }
         // Trigger celebratory confetti
         confetti({
           particleCount: 80,
@@ -99,7 +109,11 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success && data.budget) {
-        setCurrentPlan((prev) => ({ ...prev, budget: data.budget }));
+        setCurrentPlan((prev) => {
+          const updated = { ...prev, budget: data.budget };
+          if (currentUser) savePlanToUserHistory(currentUser.id, updated);
+          return updated;
+        });
         showToast('Budget refined according to instruction!', 'success');
       } else {
         showToast('Could not refine budget.', 'error');
@@ -127,7 +141,11 @@ export default function App() {
       });
       const data = await res.json();
       if (data.success && data.ideas) {
-        setCurrentPlan((prev) => ({ ...prev, ideas: data.ideas }));
+        setCurrentPlan((prev) => {
+          const updated = { ...prev, ideas: data.ideas };
+          if (currentUser) savePlanToUserHistory(currentUser.id, updated);
+          return updated;
+        });
         showToast('Generated 6 fresh creative ideas!', 'success');
       } else {
         showToast('Failed to regenerate ideas.', 'error');
@@ -143,6 +161,9 @@ export default function App() {
   // Sync plan modifications to backend store
   const handleUpdatePlan = async (updatedPlan) => {
     setCurrentPlan(updatedPlan);
+    if (currentUser) {
+      savePlanToUserHistory(currentUser.id, updatedPlan);
+    }
     try {
       await fetch('/api/plan', {
         method: 'POST',
@@ -159,11 +180,23 @@ export default function App() {
     window.history.pushState({}, '', window.location.pathname);
   };
 
+  const handleLoginSuccess = (user) => {
+    setCurrentUser(user);
+    setShowLoginModal(false);
+    showToast(`Welcome back, ${user.name}!`, 'success');
+  };
+
+  const handleLogout = () => {
+    logoutUser();
+    setCurrentUser(null);
+    showToast('Signed out of on-device account.', 'info');
+  };
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#090a0f' }}>
       {/* Toast Notification */}
       {toastMessage && (
-        <div style={{ position: 'fixed', bottom: '1.5rem', right: '1.5rem', zIndex: 50 }}>
+        <div style={{ position: 'fixed', bottom: '1.5rem', right: '1.5rem', zIndex: 110 }}>
           <div style={{
             padding: '0.75rem 1.25rem', borderRadius: '12px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
@@ -184,9 +217,12 @@ export default function App() {
       {/* Navigation */}
       <Navbar
         currentPlan={currentPlan}
+        currentUser={currentUser}
         onNewPlan={handleNewPlan}
         onExport={() => setShowExportModal(true)}
         onShare={() => setShowShareModal(true)}
+        onOpenLogin={() => setShowLoginModal(true)}
+        onLogout={handleLogout}
       />
 
       {/* Main View Area */}
@@ -220,12 +256,22 @@ export default function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.75rem', color: '#334155' }}>
             <span>Official @google/genai SDK</span>
             <span>&bull;</span>
+            <span>On-Device Privacy</span>
+            <span>&bull;</span>
             <span>Structured Function Calling</span>
           </div>
         </div>
       </footer>
 
       {/* Modals */}
+      {showLoginModal && (
+        <LoginPage
+          isModal={true}
+          onLoginSuccess={handleLoginSuccess}
+          onClose={() => setShowLoginModal(false)}
+        />
+      )}
+
       {showExportModal && (
         <ExportModal
           plan={currentPlan}

@@ -511,3 +511,4 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
     </div>
   );
 }
+
