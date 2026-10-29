@@ -12,6 +12,7 @@ describe('POST /api/generate-plan Integration Test (Mocking/Fallback)', () => {
       server = app.listen(0, () => {
         const port = server.address().port;
         baseUrl = `http://localhost:${port}`;
+        server.unref();
         resolve();
       });
     });
@@ -38,7 +39,7 @@ describe('POST /api/generate-plan Integration Test (Mocking/Fallback)', () => {
 
     const res = await fetch(`${baseUrl}/api/generate-plan`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Connection': 'close' },
       body: JSON.stringify(payload)
     });
 
@@ -63,7 +64,9 @@ describe('POST /api/generate-plan Integration Test (Mocking/Fallback)', () => {
     assert.strictEqual(budgetSum, 25000, 'Allocated budget sum must equal total requested budget');
 
     // Test GET /api/plan/:id to verify shareable persistence
-    const getRes = await fetch(`${baseUrl}/api/plan/${data.plan.id}`);
+    const getRes = await fetch(`${baseUrl}/api/plan/${data.plan.id}`, {
+      headers: { 'Connection': 'close' }
+    });
     assert.strictEqual(getRes.status, 200, 'Should retrieve plan by shareable ID');
     const fetched = await getRes.json();
     assert.strictEqual(fetched.plan.id, data.plan.id);

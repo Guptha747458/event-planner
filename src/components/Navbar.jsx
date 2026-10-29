@@ -1,7 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Share2, Printer, PlusCircle, User, LogOut, HardDrive, ChevronDown } from 'lucide-react';
+import { Sparkles, Share2, Printer, PlusCircle, User, LogOut, HardDrive, ChevronDown, Key, Clock } from 'lucide-react';
 
-export default function Navbar({ onNewPlan, onExport, onShare, currentPlan, currentUser, onOpenLogin, onLogout }) {
+export default function Navbar({
+  onNewPlan,
+  onExport,
+  onShare,
+  currentPlan,
+  currentUser,
+  onOpenLogin,
+  onLogout,
+  onOpenApiKeyModal,
+  apiStatus = 'active'
+}) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const menuRef = useRef(null);
 
@@ -28,33 +38,77 @@ export default function Navbar({ onNewPlan, onExport, onShare, currentPlan, curr
         height: '64px', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
       }}>
         {/* Brand */}
-        <div
-          onClick={onNewPlan}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}
-        >
-          <div style={{
-            width: '38px', height: '38px', borderRadius: '12px', flexShrink: 0,
-            background: 'linear-gradient(135deg, #7c3aed, #9333ea, #ec4899)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 4px 16px rgba(147,51,234,0.45)'
-          }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div
+            onClick={onNewPlan}
+            style={{
+              width: '38px', height: '38px', borderRadius: '12px', flexShrink: 0,
+              background: 'linear-gradient(135deg, #7c3aed, #9333ea, #ec4899)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 16px rgba(147,51,234,0.45)',
+              cursor: 'pointer'
+            }}
+          >
             <Sparkles style={{ width: '18px', height: '18px', color: '#fff' }} />
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{
-                fontFamily: "'Outfit', sans-serif", fontWeight: 800,
-                fontSize: '1.2rem', letterSpacing: '-0.02em', color: '#ffffff'
-              }}>
+              <span
+                onClick={onNewPlan}
+                style={{
+                  fontFamily: "'Outfit', sans-serif", fontWeight: 800,
+                  fontSize: '1.2rem', letterSpacing: '-0.02em', color: '#ffffff',
+                  cursor: 'pointer'
+                }}
+              >
                 Aura<span style={{ color: '#c084fc' }}>Plan</span>
               </span>
-              <span style={{
-                fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
-                padding: '0.2rem 0.55rem', borderRadius: '9999px',
-                background: 'rgba(147,51,234,0.18)', color: '#c084fc', border: '1px solid rgba(147,51,234,0.35)'
-              }}>
-                Gemini GenAI
-              </span>
+
+              {/* Interactive Gemini AI Status / Settings Badge */}
+              <button
+                type="button"
+                onClick={onOpenApiKeyModal}
+                id="btn-gemini-status"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  padding: '0.2rem 0.55rem',
+                  borderRadius: '9999px',
+                  background: apiStatus === 'server_issue'
+                    ? 'rgba(245, 158, 11, 0.2)'
+                    : apiStatus === 'offline_fallback'
+                    ? 'rgba(100, 116, 139, 0.2)'
+                    : 'rgba(147, 51, 234, 0.18)',
+                  color: apiStatus === 'server_issue'
+                    ? '#fbbf24'
+                    : apiStatus === 'offline_fallback'
+                    ? '#cbd5e1'
+                    : '#c084fc',
+                  border: `1px solid ${
+                    apiStatus === 'server_issue'
+                      ? 'rgba(245, 158, 11, 0.4)'
+                      : apiStatus === 'offline_fallback'
+                      ? 'rgba(100, 116, 139, 0.3)'
+                      : 'rgba(147, 51, 234, 0.35)'
+                  }`,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                title="Click to view AI status, change API key, or switch model"
+              >
+                <span style={{
+                  width: '6px', height: '6px', borderRadius: '50%',
+                  background: apiStatus === 'server_issue' ? '#fbbf24' : apiStatus === 'offline_fallback' ? '#94a3b8' : '#34d399',
+                  display: 'inline-block'
+                }} />
+                <span>{apiStatus === 'server_issue' ? 'AI Alert' : 'Gemini AI'}</span>
+                <Key style={{ width: 10, height: 10, opacity: 0.7 }} />
+              </button>
             </div>
             <p style={{ fontSize: '0.7rem', color: '#64748b', display: 'none', marginTop: '1px' }}
                className="sm-show">Intelligent Event Planning Assistant</p>
@@ -116,7 +170,7 @@ export default function Navbar({ onNewPlan, onExport, onShare, currentPlan, curr
             <span>{currentPlan ? 'New Event' : 'Get Started'}</span>
           </button>
 
-          {/* User Profile / Login Button */}
+          {/* User Profile / Temporary Guest Pill */}
           {currentUser ? (
             <div style={{ position: 'relative' }} ref={menuRef}>
               <button
@@ -182,7 +236,7 @@ export default function Navbar({ onNewPlan, onExport, onShare, currentPlan, curr
                     color: '#6ee7b7', fontSize: '0.7rem'
                   }}>
                     <HardDrive style={{ width: 13, height: 13, flexShrink: 0 }} />
-                    <span>Stored only on this device</span>
+                    <span>Saved permanently on device</span>
                   </div>
 
                   <div style={{ height: '1px', backgroundColor: 'rgba(255, 255, 255, 0.08)' }} />
@@ -232,22 +286,43 @@ export default function Navbar({ onNewPlan, onExport, onShare, currentPlan, curr
               )}
             </div>
           ) : (
-            <button
-              onClick={onOpenLogin}
-              id="btn-open-login"
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.4rem',
-                padding: '0.5rem 0.95rem', borderRadius: '10px', cursor: 'pointer',
-                background: 'rgba(255, 255, 255, 0.06)', border: '1px solid rgba(255, 255, 255, 0.12)',
-                color: '#cbd5e1', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s'
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)'; e.currentTarget.style.color = '#fff'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; e.currentTarget.style.color = '#cbd5e1'; }}
-              title="Sign in or create on-device account"
-            >
-              <User style={{ width: '14px', height: '14px', color: '#c084fc' }} />
-              <span>Sign In</span>
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <span
+                style={{
+                  display: 'none',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  fontSize: '0.7rem',
+                  color: '#94a3b8',
+                  padding: '0.3rem 0.55rem',
+                  borderRadius: '8px',
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)'
+                }}
+                className="sm-show"
+                title="Your plan is temporary and will be cleared when this browser tab closes"
+              >
+                <Clock style={{ width: 12, height: 12, color: '#f59e0b' }} />
+                <span>Guest Session (Temporary)</span>
+              </span>
+
+              <button
+                onClick={onOpenLogin}
+                id="btn-open-login"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  padding: '0.5rem 0.95rem', borderRadius: '10px', cursor: 'pointer',
+                  background: 'rgba(255, 255, 255, 0.06)', border: '1px solid rgba(255, 255, 255, 0.12)',
+                  color: '#cbd5e1', fontSize: '0.82rem', fontWeight: 600, transition: 'all 0.2s'
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)'; e.currentTarget.style.color = '#fff'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)'; e.currentTarget.style.color = '#cbd5e1'; }}
+                title="Sign in to save this plan permanently to your device"
+              >
+                <User style={{ width: '14px', height: '14px', color: '#c084fc' }} />
+                <span>Sign In to Save</span>
+              </button>
+            </div>
           )}
         </div>
       </div>

@@ -22,17 +22,26 @@ export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRe
   const handleSlider = (cat, val) => onUpdateBudget({ ...budget, [cat]: Math.max(0, parseInt(val) || 0) });
   const handleNumInput = (cat, val) => onUpdateBudget({ ...budget, [cat]: Math.max(0, parseInt(val) || 0) });
 
-  const handleRefine = async (e) => {
-    e.preventDefault();
-    if (!instruction.trim()) return;
-    setFeedback({ type: 'loading', msg: 'Gemini is recalculating allocations…' });
+  const QUICK_PROMPTS = [
+    'Cut catering by 20% and move to decor',
+    'Increase photography to $3,000',
+    'Add $1,000 to decor from misc',
+    'Evenly balance all categories'
+  ];
+
+  const handleRefine = async (e, customPrompt) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const promptToUse = (customPrompt !== undefined ? customPrompt : instruction || QUICK_PROMPTS[0]).trim();
+    if (!promptToUse) return;
+
+    setFeedback({ type: 'loading', msg: `Calculating allocations for: "${promptToUse}"...` });
     try {
-      await onRefineBudget(instruction);
-      setFeedback({ type: 'success', msg: `Budget adjusted: "${instruction}"` });
+      await onRefineBudget(promptToUse);
+      setFeedback({ type: 'success', msg: `✓ Budget successfully adjusted: "${promptToUse}"` });
       setInstruction('');
       setTimeout(() => setFeedback(null), 5000);
-    } catch {
-      setFeedback({ type: 'error', msg: 'Refinement failed — try a different prompt.' });
+    } catch (err) {
+      setFeedback({ type: 'error', msg: err?.message || 'Refinement failed — try a different instruction.' });
     }
   };
 
@@ -84,20 +93,58 @@ export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRe
               onFocus={e => { e.target.style.borderColor = '#9333ea'; e.target.style.boxShadow = '0 0 0 3px rgba(147,51,234,0.18)'; }}
               onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.12)'; e.target.style.boxShadow = 'none'; }}
             />
-            <button
-              type="submit"
-              id="btn-refine-budget"
-              disabled={isRefining || !instruction.trim()}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem',
-                padding: '0.6rem 1.25rem', borderRadius: '10px', cursor: 'pointer', fontWeight: 700,
-                fontSize: '0.82rem', border: 'none', color: '#fff', alignSelf: 'flex-start',
-                background: (isRefining || !instruction.trim()) ? 'rgba(147,51,234,0.3)' : 'linear-gradient(135deg,#9333ea,#7c3aed)',
-                opacity: (isRefining || !instruction.trim()) ? 0.6 : 1
-              }}
-            >
-              {isRefining ? <><RefreshCw style={{ width: 14, height: 14 }} />Refining…</> : <><Sparkles style={{ width: 14, height: 14 }} />Refine Budget</>}
-            </button>
+            {/* Quick Suggestion Chips */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.4rem', marginTop: '0.2rem' }}>
+              <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Try:</span>
+              {QUICK_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => {
+                    setInstruction(prompt);
+                    handleRefine(null, prompt);
+                  }}
+                  disabled={isRefining}
+                  style={{
+                    padding: '0.2rem 0.65rem',
+                    borderRadius: '9999px',
+                    fontSize: '0.72rem',
+                    color: '#c084fc',
+                    background: 'rgba(147, 51, 234, 0.12)',
+                    border: '1px solid rgba(147, 51, 234, 0.25)',
+                    cursor: isRefining ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={e => { if (!isRefining) { e.currentTarget.style.background = 'rgba(147, 51, 234, 0.28)'; e.currentTarget.style.borderColor = '#c084fc'; } }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(147, 51, 234, 0.12)'; e.currentTarget.style.borderColor = 'rgba(147, 51, 234, 0.25)'; }}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginTop: '0.2rem' }}>
+              <button
+                type="submit"
+                id="btn-refine-budget"
+                disabled={isRefining}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.45rem',
+                  padding: '0.6rem 1.35rem', borderRadius: '10px', cursor: isRefining ? 'not-allowed' : 'pointer', fontWeight: 700,
+                  fontSize: '0.82rem', border: 'none', color: '#fff',
+                  background: isRefining ? 'rgba(147,51,234,0.3)' : 'linear-gradient(135deg,#9333ea,#7c3aed)',
+                  boxShadow: isRefining ? 'none' : '0 4px 14px rgba(147,51,234,0.4)',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {isRefining ? <><RefreshCw className="animate-spin" style={{ width: 14, height: 14 }} />Refining with AI…</> : <><Sparkles style={{ width: 14, height: 14 }} />Refine Budget</>}
+              </button>
+              {!instruction.trim() && (
+                <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                  Click button or select a prompt above to auto-reallocate
+                </span>
+              )}
+            </div>
           </div>
         </form>
         {feedback && (

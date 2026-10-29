@@ -42,4 +42,23 @@ describe('Budget Recalculation Engine (Unit Test)', () => {
     assert.strictEqual(refined.decor, 2500);
     assert.strictEqual(refined.misc, 500);
   });
+
+  test('Correctly handles evenly balancing all categories', () => {
+    const instruction = 'evenly balance all categories';
+    const refined = localRefineBudget(initialBudget, instruction, total);
+
+    const sum = Object.values(refined).reduce((a, b) => a + b, 0);
+    assert.strictEqual(sum, total);
+    assert.strictEqual(refined.venue, 2500);
+    assert.strictEqual(refined.catering, 2500);
+  });
+
+  test('Handles increase target category and offsets difference across others', () => {
+    const instruction = 'increase photography to 3000';
+    const refined = localRefineBudget(initialBudget, instruction, total);
+
+    const sum = Object.values(refined).reduce((a, b) => a + b, 0);
+    assert.strictEqual(sum, total);
+    assert.strictEqual(refined.photography, 3000);
+  });
 });

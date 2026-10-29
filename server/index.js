@@ -49,11 +49,29 @@ app.use((req, res, next) => {
 // Start listening if executed directly as entrypoint
 const isDirectRun = process.argv[1] && (path.resolve(process.argv[1]) === __filename || process.argv[1].endsWith('server/index.js'));
 if (isDirectRun && process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`[Event Planner Server] Running at http://localhost:${PORT}`);
     console.log(`[Gemini Integration] API Key status: ${process.env.GEMINI_API_KEY ? 'CONFIGURED' : 'UNCONFIGURED (using fallback)'}`);
     console.log(`[Gemini Integration] Model: ${process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite'}`);
   });
+
+  const shutdown = (signal) => {
+    console.log(`\n[Event Planner Server] Received ${signal}. Shutting down cleanly...`);
+    if (server) {
+      server.closeAllConnections?.();
+      server.close(() => {
+        console.log('[Event Planner Server] Server stopped.');
+        process.exit(0);
+      });
+      // Force exit after 1.5 seconds if handles remain
+      setTimeout(() => process.exit(0), 1500).unref();
+    } else {
+      process.exit(0);
+    }
+  };
+
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
 export default app;

@@ -3,17 +3,102 @@ import { generateFallbackPlan, generateFallbackIdeas } from './fallbackPlan.js';
 
 // Lazy-initialized Gemini client
 let geminiClient = null;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
 
-function getGeminiClient() {
-  const apiKey = process.env.GEMINI_API_KEY;
+// Track real-time API health and issues
+const lastGeminiStatus = {
+  status: 'unknown', // 'active' | 'server_issue' | 'offline_fallback'
+  lastUsedModel: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+  lastError: null,
+  lastSuccessTime: null
+};
+
+function getActiveModel(overrideModel) {
+  return overrideModel || process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+}
+
+/**
+ * Executes a promise with an enforced timeout so requests never hang
+ */
+function callWithTimeout(promise, ms = 4500) {
+  let timer;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Gemini API call timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timer);
+  });
+}
+
+function getGeminiClient(customApiKey) {
+  const apiKey = customApiKey || process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'your_gemini_api_key_here') {
     return null;
+  }
+  if (customApiKey) {
+    return new GoogleGenAI({ apiKey: customApiKey });
   }
   if (!geminiClient) {
     geminiClient = new GoogleGenAI({ apiKey });
   }
   return geminiClient;
+}
+
+/**
+ * Returns current Gemini API configuration and status
+ */
+export function getGeminiStatus() {
+  const currentKey = process.env.GEMINI_API_KEY;
+  const isConfigured = !!(currentKey && currentKey !== 'your_gemini_api_key_here');
+  return {
+    configured: isConfigured,
+    model: getActiveModel(),
+    status: isConfigured ? (lastGeminiStatus.status === 'server_issue' ? 'server_issue' : 'active') : 'offline_fallback',
+    lastError: lastGeminiStatus.lastError,
+    lastSuccessTime: lastGeminiStatus.lastSuccessTime
+  };
+}
+
+/**
+ * Update Gemini API configuration dynamically at runtime
+ */
+export function updateGeminiConfig({ apiKey, model }) {
+  if (apiKey) {
+    process.env.GEMINI_API_KEY = apiKey.trim();
+    geminiClient = null; // force recreation
+  }
+  if (model) {
+    process.env.GEMINI_MODEL = model.trim();
+  }
+  return getGeminiStatus();
+}
+
+/**
+ * Test connectivity with a specific key and model
+ */
+export async function testGeminiConnection(apiKey, model) {
+  const testKey = apiKey || process.env.GEMINI_API_KEY;
+  const testModel = getActiveModel(model);
+  if (!testKey || testKey === 'your_gemini_api_key_here') {
+    return { ok: false, error: 'No API key provided.' };
+  }
+  try {
+    const testClient = new GoogleGenAI({ apiKey: testKey });
+    const response = await callWithTimeout(
+      testClient.models.generateContent({
+        model: testModel,
+        contents: 'Ping test. Reply with "pong" only.'
+      }),
+      5000
+    );
+    lastGeminiStatus.status = 'active';
+    lastGeminiStatus.lastError = null;
+    lastGeminiStatus.lastSuccessTime = new Date().toISOString();
+    return { ok: true, text: response?.text || 'pong', model: testModel };
+  } catch (err) {
+    lastGeminiStatus.status = 'server_issue';
+    lastGeminiStatus.lastError = err.message;
+    return { ok: false, error: err.message, model: testModel };
+  }
 }
 
 /**
@@ -125,11 +210,17 @@ export const eventPlanningTools = [
 /**
  * Generate full event plan via Gemini (with 1 retry on malformed JSON + fallback)
  */
-export async function generatePlanWithGemini(metadata) {
-  const client = getGeminiClient();
+export async function generatePlanWithGemini(metadata, options = {}) {
+  const client = getGeminiClient(options.apiKey);
+  const modelToUse = getActiveModel(options.model);
+
   if (!client) {
     console.log('[Gemini] No GEMINI_API_KEY detected. Using intelligent procedural fallback plan.');
-    return generateFallbackPlan(metadata);
+    lastGeminiStatus.status = 'offline_fallback';
+    const fallback = generateFallbackPlan(metadata);
+    fallback._isFallback = true;
+    fallback._fallbackReason = 'No API key provided. Using offline procedural AI engine.';
+    return fallback;
   }
 
   const {
@@ -207,16 +298,22 @@ CRITICAL RULES:
 
   // Attempt 1: Call Gemini
   try {
-    const response = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json'
-      }
-    });
+    const response = await callWithTimeout(
+      client.models.generateContent({
+        model: modelToUse,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      }),
+      6000
+    );
 
     const parsed = parseGeminiJson(response.text);
     if (parsed && isValidPlan(parsed, totalBudget)) {
+      lastGeminiStatus.status = 'active';
+      lastGeminiStatus.lastError = null;
+      lastGeminiStatus.lastSuccessTime = new Date().toISOString();
       return sanitizePlan(parsed, metadata);
     }
     throw new Error('Initial Gemini response failed validation.');
@@ -233,16 +330,22 @@ Ensure:
 2. exactly 6 ideas
 3. Valid JSON object only.
 `;
-      const retryResponse = await client.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: retryPrompt,
-        config: {
-          responseMimeType: 'application/json'
-        }
-      });
+      const retryResponse = await callWithTimeout(
+        client.models.generateContent({
+          model: modelToUse,
+          contents: retryPrompt,
+          config: {
+            responseMimeType: 'application/json'
+          }
+        }),
+        6000
+      );
 
       const parsedRetry = parseGeminiJson(retryResponse.text);
       if (parsedRetry && isValidPlan(parsedRetry, totalBudget)) {
+        lastGeminiStatus.status = 'active';
+        lastGeminiStatus.lastError = null;
+        lastGeminiStatus.lastSuccessTime = new Date().toISOString();
         return sanitizePlan(parsedRetry, metadata);
       }
     } catch (err2) {
@@ -251,16 +354,22 @@ Ensure:
 
     // Friendly fallback plan if all retries fail
     console.log('[Gemini] Returning resilient fallback plan.');
-    return generateFallbackPlan(metadata);
+    lastGeminiStatus.status = 'server_issue';
+    lastGeminiStatus.lastError = err1.message;
+    const fallbackPlan = generateFallbackPlan(metadata);
+    fallbackPlan._isFallback = true;
+    fallbackPlan._fallbackReason = err1.message;
+    return fallbackPlan;
   }
 }
 
 /**
  * Refine budget with Gemini based on natural language instruction
  */
-export async function refineBudgetWithGemini(currentBudget, instruction, totalBudget) {
+export async function refineBudgetWithGemini(currentBudget, instruction, totalBudget, options = {}) {
   const numericTotal = Number(totalBudget) || Object.values(currentBudget).reduce((a, b) => a + b, 0);
-  const client = getGeminiClient();
+  const client = getGeminiClient(options.apiKey);
+  const modelToUse = getActiveModel(options.model);
 
   if (!client) {
     return localRefineBudget(currentBudget, instruction, numericTotal);
@@ -279,20 +388,27 @@ Return ONLY a valid JSON object with the keys: venue, catering, decor, photograp
 `;
 
   try {
-    const response = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json'
-      }
-    });
+    const response = await callWithTimeout(
+      client.models.generateContent({
+        model: modelToUse,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      }),
+      3500
+    );
     const parsed = parseGeminiJson(response.text);
     if (parsed && typeof parsed.venue === 'number') {
-      // Normalize sum
+      lastGeminiStatus.status = 'active';
+      lastGeminiStatus.lastError = null;
+      lastGeminiStatus.lastSuccessTime = new Date().toISOString();
       return normalizeBudgetSum(parsed, numericTotal);
     }
   } catch (err) {
     console.warn('[Gemini] Budget refinement failed, using local rule engine:', err.message);
+    lastGeminiStatus.status = 'server_issue';
+    lastGeminiStatus.lastError = err.message;
   }
 
   return localRefineBudget(currentBudget, instruction, numericTotal);
@@ -301,8 +417,9 @@ Return ONLY a valid JSON object with the keys: venue, catering, decor, photograp
 /**
  * Regenerate 6 fresh surprise-me ideas
  */
-export async function regenerateIdeasWithGemini(metadata) {
-  const client = getGeminiClient();
+export async function regenerateIdeasWithGemini(metadata, options = {}) {
+  const client = getGeminiClient(options.apiKey);
+  const modelToUse = getActiveModel(options.model);
   if (!client) {
     return generateFallbackIdeas(metadata);
   }
@@ -327,23 +444,34 @@ Return ONLY valid JSON array.
 `;
 
   try {
-    const response = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json'
-      }
-    });
+    const response = await callWithTimeout(
+      client.models.generateContent({
+        model: modelToUse,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json'
+        }
+      }),
+      4500
+    );
 
     const parsed = parseGeminiJson(response.text);
     if (Array.isArray(parsed) && parsed.length >= 6) {
+      lastGeminiStatus.status = 'active';
+      lastGeminiStatus.lastError = null;
+      lastGeminiStatus.lastSuccessTime = new Date().toISOString();
       return parsed.slice(0, 6);
     }
     if (parsed && Array.isArray(parsed.ideas) && parsed.ideas.length >= 6) {
+      lastGeminiStatus.status = 'active';
+      lastGeminiStatus.lastError = null;
+      lastGeminiStatus.lastSuccessTime = new Date().toISOString();
       return parsed.ideas.slice(0, 6);
     }
   } catch (err) {
     console.warn('[Gemini] Idea regeneration failed, using local ideas:', err.message);
+    lastGeminiStatus.status = 'server_issue';
+    lastGeminiStatus.lastError = err.message;
   }
 
   return generateFallbackIdeas(metadata);
@@ -427,38 +555,54 @@ function normalizeBudgetSum(budget, targetTotal) {
  * Procedural budget refinement rule engine for natural language instructions
  */
 export function localRefineBudget(currentBudget, instruction, totalBudget) {
-  const updated = { ...currentBudget };
-  const lower = instruction.toLowerCase();
+  const updated = {};
+  const categories = ['venue', 'catering', 'decor', 'photography', 'attire', 'misc'];
+  categories.forEach(c => {
+    updated[c] = Number(currentBudget[c]) || 0;
+  });
 
-  // Pattern: "cut catering by 20% and move to decor"
-  const cutMatch = lower.match(/cut\s+([a-z]+)\s+by\s+(\d+)%(?:\s+and\s+move\s+to\s+([a-z]+))?/i);
+  const lower = (instruction || '').toLowerCase().trim();
+
+  // Pattern 0: "balance", "equalize", "split evenly"
+  if (/balance|equalize|even|split evenly/i.test(lower)) {
+    const perCat = Math.floor(totalBudget / categories.length);
+    categories.forEach((c, idx) => {
+      updated[c] = idx === categories.length - 1 ? totalBudget - perCat * (categories.length - 1) : perCat;
+    });
+    return normalizeBudgetSum(updated, totalBudget);
+  }
+
+  // Pattern 1: "cut catering by 20% and move to decor" OR "cut catering by 20%"
+  const cutMatch = lower.match(/(?:cut|reduce|decrease|lower|trim|drop)\s+([a-z]+)\s+by\s+(\d+)%(?:\s+(?:and\s+)?(?:move|shift|transfer|put)?\s*(?:to|into)?\s*([a-z]+))?/i);
   if (cutMatch) {
     const fromCat = findCategoryKey(cutMatch[1]);
     const percent = parseFloat(cutMatch[2]) / 100;
-    const toCat = cutMatch[3] ? findCategoryKey(cutMatch[3]) : 'decor';
+    const toCat = cutMatch[3] ? findCategoryKey(cutMatch[3]) : null;
 
-    if (fromCat && updated[fromCat]) {
+    if (fromCat && updated[fromCat] !== undefined) {
       const amount = Math.round(updated[fromCat] * percent);
-      updated[fromCat] -= amount;
-      if (toCat && updated[toCat] !== undefined) {
+      updated[fromCat] = Math.max(0, updated[fromCat] - amount);
+      if (toCat && updated[toCat] !== undefined && toCat !== fromCat) {
         updated[toCat] += amount;
       } else {
-        updated.decor += amount;
+        // Distribute amount to other categories
+        const otherCats = categories.filter(c => c !== fromCat);
+        const share = Math.round(amount / otherCats.length);
+        otherCats.forEach(c => { updated[c] += share; });
       }
       return normalizeBudgetSum(updated, totalBudget);
     }
   }
 
-  // Pattern: "increase photography to 3000"
-  const setToMatch = lower.match(/(?:increase|raise|set)\s+([a-z]+)\s+to\s+\$?(\d+)/i);
+  // Pattern 2: "increase/set photography to $3,000"
+  const setToMatch = lower.match(/(?:increase|raise|set|boost)\s+([a-z]+)\s+to\s+\$?(\d+)/i);
   if (setToMatch) {
     const targetCat = findCategoryKey(setToMatch[1]);
     const targetAmount = parseInt(setToMatch[2], 10);
     if (targetCat && updated[targetCat] !== undefined) {
       const diff = targetAmount - updated[targetCat];
       updated[targetCat] = targetAmount;
-      // offset difference across other categories
-      const otherKeys = Object.keys(updated).filter(k => k !== targetCat);
+      const otherKeys = categories.filter(k => k !== targetCat);
       const perKeyOffset = Math.round(diff / otherKeys.length);
       otherKeys.forEach(k => {
         updated[k] = Math.max(0, updated[k] - perKeyOffset);
@@ -467,22 +611,54 @@ export function localRefineBudget(currentBudget, instruction, totalBudget) {
     }
   }
 
-  // Pattern: "add 1000 to decor from misc"
-  const shiftMatch = lower.match(/(?:add|move)\s+\$?(\d+)\s+to\s+([a-z]+)(?:\s+from\s+([a-z]+))?/i);
-  if (shiftMatch) {
-    const amt = parseInt(shiftMatch[1], 10);
-    const toCat = findCategoryKey(shiftMatch[2]);
-    const fromCat = shiftMatch[3] ? findCategoryKey(shiftMatch[3]) : 'misc';
-    if (toCat && updated[toCat] !== undefined) {
+  // Pattern 3a: "add 500 to decor from misc"
+  const shiftMatchA = lower.match(/(?:add|move|shift|transfer)\s+\$?(\d+)\s+to\s+([a-z]+)\s+from\s+([a-z]+)/i);
+  if (shiftMatchA) {
+    const amt = parseInt(shiftMatchA[1], 10);
+    const toCat = findCategoryKey(shiftMatchA[2]);
+    const fromCat = findCategoryKey(shiftMatchA[3]);
+    if (toCat && fromCat && updated[toCat] !== undefined && updated[fromCat] !== undefined) {
       updated[toCat] += amt;
-      if (fromCat && updated[fromCat] !== undefined) {
-        updated[fromCat] = Math.max(0, updated[fromCat] - amt);
-      }
+      updated[fromCat] = Math.max(0, updated[fromCat] - amt);
       return normalizeBudgetSum(updated, totalBudget);
     }
   }
 
-  // Default fallback if no pattern matched: slight tweak
+  // Pattern 3b: "add 500 from misc to decor"
+  const shiftMatchB = lower.match(/(?:add|move|shift|transfer)\s+\$?(\d+)\s+from\s+([a-z]+)\s+to\s+([a-z]+)/i);
+  if (shiftMatchB) {
+    const amt = parseInt(shiftMatchB[1], 10);
+    const fromCat = findCategoryKey(shiftMatchB[2]);
+    const toCat = findCategoryKey(shiftMatchB[3]);
+    if (toCat && fromCat && updated[toCat] !== undefined && updated[fromCat] !== undefined) {
+      updated[toCat] += amt;
+      updated[fromCat] = Math.max(0, updated[fromCat] - amt);
+      return normalizeBudgetSum(updated, totalBudget);
+    }
+  }
+
+  // Pattern 3c: "add 500 to decor"
+  const shiftMatchC = lower.match(/(?:add|move|shift|transfer)\s+\$?(\d+)\s+to\s+([a-z]+)/i);
+  if (shiftMatchC) {
+    const amt = parseInt(shiftMatchC[1], 10);
+    const toCat = findCategoryKey(shiftMatchC[2]);
+    if (toCat && updated[toCat] !== undefined) {
+      updated[toCat] += amt;
+      const otherKeys = categories.filter(k => k !== toCat);
+      const perKeyOffset = Math.round(amt / otherKeys.length);
+      otherKeys.forEach(k => { updated[k] = Math.max(0, updated[k] - perKeyOffset); });
+      return normalizeBudgetSum(updated, totalBudget);
+    }
+  }
+
+  // Default fallback if no specific regex hit: shift 10% from highest to lowest
+  const sorted = [...categories].sort((a, b) => updated[b] - updated[a]);
+  const highest = sorted[0];
+  const lowest = sorted[sorted.length - 1];
+  const shift = Math.round(updated[highest] * 0.1);
+  updated[highest] -= shift;
+  updated[lowest] += shift;
+
   return normalizeBudgetSum(updated, totalBudget);
 }
 
