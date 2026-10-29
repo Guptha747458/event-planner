@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Sparkles, Wand2, RefreshCw, AlertCircle, Layers, PieChart } from 'lucide-react';
 
 const CATS = {
@@ -7,29 +7,65 @@ const CATS = {
   decor:       { label: 'Decor & Florals',      color: '#10b981', icon: '💐' },
   photography: { label: 'Photography & Film',   color: '#06b6d4', icon: '📷' },
   attire:      { label: 'Attire & Styling',     color: '#f59e0b', icon: '👗' },
-  misc:        { label: 'Entertainment & Misc', color: '#6366f1', icon: '🎉' }
+  misc:        { label: 'Entertainment & Misc', color: '#6366f1', icon: '🎉' },
 };
+
+const CATEGORIES = Object.keys(CATS);
+
+const QUICK_PROMPTS = [
+  'Cut catering by 20% and move to decor',
+  'Increase photography to $3,000',
+  'Add $1,000 to decor from misc',
+  'Evenly balance all categories',
+];
+
+/**
+ * Convert polar angle to SVG x/y coordinate.
+ * Hoisted outside component to prevent re-creation on every render.
+ */
+function toXY(angleDeg, r = 80, cx = 100, cy = 100) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
 
 export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRefineBudget, isRefining }) {
   const [instruction, setInstruction] = useState('');
   const [activeCategory, setActiveCategory] = useState(null);
   const [feedback, setFeedback] = useState(null);
 
-  const categories = Object.keys(CATS);
-  const totalAllocated = categories.reduce((s, k) => s + Number(budget[k] || 0), 0);
-  const remaining = totalBudget - totalAllocated;
+  /** Memoize the running totals so they only recompute when budget changes */
+  const { totalAllocated, remaining } = useMemo(() => {
+    const alloc = CATEGORIES.reduce((s, k) => s + Number(budget[k] || 0), 0);
+    return { totalAllocated: alloc, remaining: totalBudget - alloc };
+  }, [budget, totalBudget]);
 
-  const handleSlider = (cat, val) => onUpdateBudget({ ...budget, [cat]: Math.max(0, parseInt(val) || 0) });
-  const handleNumInput = (cat, val) => onUpdateBudget({ ...budget, [cat]: Math.max(0, parseInt(val) || 0) });
+  /** Memoize SVG donut slices — expensive path math only reruns on budget change */
+  const slices = useMemo(() => {
+    let acc = 0;
+    return CATEGORIES.map(k => {
+      const amt = Number(budget[k] || 0);
+      const pct = totalAllocated > 0 ? amt / totalAllocated : 0;
+      const deg = pct * 360;
+      const start = acc;
+      acc += deg;
+      const s = toXY(start);
+      const f = toXY(acc);
+      const large = deg > 180 ? 1 : 0;
+      return {
+        key: k, amt, pct: Math.round(pct * 100), color: CATS[k].color,
+        path: pct >= 0.999
+          ? 'M 100 20 A 80 80 0 1 1 99.99 20'
+          : `M ${s.x} ${s.y} A 80 80 0 ${large} 1 ${f.x} ${f.y}`,
+      };
+    });
+  }, [budget, totalAllocated]);
 
-  const QUICK_PROMPTS = [
-    'Cut catering by 20% and move to decor',
-    'Increase photography to $3,000',
-    'Add $1,000 to decor from misc',
-    'Evenly balance all categories'
-  ];
+  /** Single handler for both slider and number input — they do the same thing */
+  const handleBudgetChange = useCallback((cat, val) => {
+    onUpdateBudget({ ...budget, [cat]: Math.max(0, parseInt(val) || 0) });
+  }, [budget, onUpdateBudget]);
 
-  const handleRefine = async (e, customPrompt) => {
+  const handleRefine = useCallback(async (e, customPrompt) => {
     if (e && e.preventDefault) e.preventDefault();
     const promptToUse = (customPrompt !== undefined ? customPrompt : instruction || QUICK_PROMPTS[0]).trim();
     if (!promptToUse) return;
@@ -43,25 +79,7 @@ export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRe
     } catch (err) {
       setFeedback({ type: 'error', msg: err?.message || 'Refinement failed — try a different instruction.' });
     }
-  };
-
-  /* ── SVG Donut ── */
-  let acc = 0;
-  const slices = categories.map(k => {
-    const amt = Number(budget[k] || 0);
-    const pct = totalAllocated > 0 ? amt / totalAllocated : 0;
-    const deg = pct * 360;
-    const start = acc;
-    acc += deg;
-    const toXY = (a, r = 80, cx = 100, cy = 100) => {
-      const rad = ((a - 90) * Math.PI) / 180;
-      return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
-    };
-    const s = toXY(start), f = toXY(acc);
-    const large = deg > 180 ? 1 : 0;
-    return { key: k, amt, pct: Math.round(pct * 100), color: CATS[k].color,
-      path: pct >= 0.999 ? 'M 100 20 A 80 80 0 1 1 99.99 20' : `M ${s.x} ${s.y} A 80 80 0 ${large} 1 ${f.x} ${f.y}` };
-  });
+  }, [instruction, onRefineBudget]);
 
   const card = {
     background: 'rgba(14,16,28,0.85)', backdropFilter: 'blur(18px)',
@@ -100,20 +118,13 @@ export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRe
                 <button
                   key={prompt}
                   type="button"
-                  onClick={() => {
-                    setInstruction(prompt);
-                    handleRefine(null, prompt);
-                  }}
+                  onClick={() => { setInstruction(prompt); handleRefine(null, prompt); }}
                   disabled={isRefining}
                   style={{
-                    padding: '0.2rem 0.65rem',
-                    borderRadius: '9999px',
-                    fontSize: '0.72rem',
-                    color: '#c084fc',
-                    background: 'rgba(147, 51, 234, 0.12)',
+                    padding: '0.2rem 0.65rem', borderRadius: '9999px', fontSize: '0.72rem',
+                    color: '#c084fc', background: 'rgba(147, 51, 234, 0.12)',
                     border: '1px solid rgba(147, 51, 234, 0.25)',
-                    cursor: isRefining ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.15s ease'
+                    cursor: isRefining ? 'not-allowed' : 'pointer', transition: 'all 0.15s ease'
                   }}
                   onMouseEnter={e => { if (!isRefining) { e.currentTarget.style.background = 'rgba(147, 51, 234, 0.28)'; e.currentTarget.style.borderColor = '#c084fc'; } }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'rgba(147, 51, 234, 0.12)'; e.currentTarget.style.borderColor = 'rgba(147, 51, 234, 0.25)'; }}
@@ -174,7 +185,7 @@ export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRe
 
           {/* SVG Donut */}
           <div style={{ position: 'relative', width: '200px', height: '200px', margin: '0 auto 1.25rem' }}>
-            <svg viewBox="0 0 200 200" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
+            <svg viewBox="0 0 200 200" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }} aria-label="Budget allocation donut chart">
               <circle cx="100" cy="100" r="80" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="24" />
               {slices.map(sl => (
                 <path
@@ -191,7 +202,9 @@ export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRe
                   }}
                   onMouseEnter={() => setActiveCategory(sl.key)}
                   onMouseLeave={() => setActiveCategory(null)}
-                />
+                >
+                  <title>{CATS[sl.key].label}: ${sl.amt.toLocaleString()} ({sl.pct}%)</title>
+                </path>
               ))}
             </svg>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -226,7 +239,7 @@ export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRe
 
           {/* Legend */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '1rem' }}>
-            {categories.map(k => (
+            {CATEGORIES.map(k => (
               <div key={k} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.7rem', color: '#94a3b8' }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: CATS[k].color, flexShrink: 0 }} />
                 {CATS[k].label.split(' ')[0]}
@@ -242,7 +255,7 @@ export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRe
             <span style={{ fontFamily: "'Outfit',sans-serif", fontWeight: 700, fontSize: '1.05rem', color: '#fff' }}>Drag-to-Adjust Sliders</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {categories.map(cat => {
+            {CATEGORIES.map(cat => {
               const cfg = CATS[cat];
               const amt = Number(budget[cat] || 0);
               const pct = totalBudget > 0 ? Math.round((amt / totalBudget) * 100) : 0;
@@ -272,7 +285,8 @@ export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRe
                         <input
                           type="number"
                           value={amt}
-                          onChange={e => handleNumInput(cat, e.target.value)}
+                          onChange={e => handleBudgetChange(cat, e.target.value)}
+                          aria-label={`${cfg.label} amount in dollars`}
                           style={{
                             width: '90px', background: '#080a14', border: '1px solid rgba(255,255,255,0.12)',
                             borderRadius: '8px', padding: '0.35rem 0.5rem 0.35rem 1.25rem',
@@ -288,7 +302,8 @@ export default function BudgetModule({ budget, totalBudget, onUpdateBudget, onRe
                     max={Math.max(totalBudget, amt * 1.5)}
                     step="50"
                     value={amt}
-                    onChange={e => handleSlider(cat, e.target.value)}
+                    onChange={e => handleBudgetChange(cat, e.target.value)}
+                    aria-label={`${cfg.label} budget slider`}
                     style={{ width: '100%', accentColor: cfg.color, cursor: 'pointer', height: '4px', background: `linear-gradient(to right, ${cfg.color} ${pct}%, rgba(255,255,255,0.1) ${pct}%)` }}
                   />
                 </div>

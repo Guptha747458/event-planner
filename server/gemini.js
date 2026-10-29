@@ -456,17 +456,12 @@ Return ONLY valid JSON array.
     );
 
     const parsed = parseGeminiJson(response.text);
-    if (Array.isArray(parsed) && parsed.length >= 6) {
+    const ideasArray = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.ideas) ? parsed.ideas : null);
+    if (ideasArray && ideasArray.length >= 6) {
       lastGeminiStatus.status = 'active';
       lastGeminiStatus.lastError = null;
       lastGeminiStatus.lastSuccessTime = new Date().toISOString();
-      return parsed.slice(0, 6);
-    }
-    if (parsed && Array.isArray(parsed.ideas) && parsed.ideas.length >= 6) {
-      lastGeminiStatus.status = 'active';
-      lastGeminiStatus.lastError = null;
-      lastGeminiStatus.lastSuccessTime = new Date().toISOString();
-      return parsed.ideas.slice(0, 6);
+      return ideasArray.slice(0, 6);
     }
   } catch (err) {
     console.warn('[Gemini] Idea regeneration failed, using local ideas:', err.message);
@@ -508,6 +503,10 @@ function sanitizePlan(plan, metadata) {
   const numBudget = Number(metadata.totalBudget) || 15000;
   const normalizedBudget = normalizeBudgetSum(plan.budget, numBudget);
 
+  // Generate fallback only once and reuse for both timeline and vendors if needed
+  const needsFallback = !Array.isArray(plan.timeline) || !plan.timeline.length || !Array.isArray(plan.vendors) || !plan.vendors.length;
+  const fallback = needsFallback ? generateFallbackPlan(metadata) : null;
+
   return {
     metadata: {
       ...metadata,
@@ -515,8 +514,8 @@ function sanitizePlan(plan, metadata) {
       guestCount: Number(metadata.guestCount) || 100
     },
     budget: normalizedBudget,
-    timeline: Array.isArray(plan.timeline) && plan.timeline.length ? plan.timeline : generateFallbackPlan(metadata).timeline,
-    vendors: Array.isArray(plan.vendors) && plan.vendors.length ? plan.vendors : generateFallbackPlan(metadata).vendors,
+    timeline: Array.isArray(plan.timeline) && plan.timeline.length ? plan.timeline : fallback.timeline,
+    vendors: Array.isArray(plan.vendors) && plan.vendors.length ? plan.vendors : fallback.vendors,
     ideas: Array.isArray(plan.ideas) && plan.ideas.length >= 6 ? plan.ideas.slice(0, 6) : generateFallbackIdeas(metadata)
   };
 }

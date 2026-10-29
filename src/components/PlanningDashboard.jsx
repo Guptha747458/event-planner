@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { DollarSign, Users, Clock, Lightbulb, Edit3, Calendar, MapPin, Share2, Printer } from 'lucide-react';
 import BudgetModule from './BudgetModule.jsx';
 import TimelineModule from './TimelineModule.jsx';
@@ -9,7 +9,7 @@ const TABS = [
   { id: 'budget',   label: 'Budget Tracker',       icon: DollarSign },
   { id: 'timeline', label: 'Timeline Milestones',   icon: Clock      },
   { id: 'vendors',  label: 'Vendor Checklist',      icon: Users      },
-  { id: 'ideas',    label: 'Surprise Me Ideas',     icon: Lightbulb  }
+  { id: 'ideas',    label: 'Surprise Me Ideas',     icon: Lightbulb  },
 ];
 
 export default function PlanningDashboard({
@@ -19,15 +19,21 @@ export default function PlanningDashboard({
   const [activeTab, setActiveTab] = useState('budget');
   const { metadata = {}, budget = {}, timeline = [], vendors = [], ideas = [] } = plan || {};
   const totalBudget = Number(metadata.totalBudget) || 15000;
-  const completedTasks = timeline.filter(t => t.completed).length;
-  const bookedVendors  = vendors.filter(v => v.status === 'Booked' || v.status === 'Deposit Paid').length;
 
-  const tabCounts = {
+  const completedTasks = useMemo(() => timeline.filter(t => t.completed).length, [timeline]);
+  const bookedVendors  = useMemo(() => vendors.filter(v => v.status === 'Booked' || v.status === 'Deposit Paid').length, [vendors]);
+
+  const tabCounts = useMemo(() => ({
     budget:   `$${totalBudget.toLocaleString()}`,
     timeline: `${completedTasks}/${timeline.length}`,
     vendors:  `${bookedVendors}/${vendors.length}`,
-    ideas:    `${ideas.length} Ideas`
-  };
+    ideas:    `${ideas.length} Ideas`,
+  }), [totalBudget, completedTasks, timeline.length, bookedVendors, vendors.length, ideas.length]);
+
+  /** Stable callbacks so child modules don't re-render unnecessarily */
+  const handleUpdateBudget = useCallback((b) => onUpdatePlan({ ...plan, budget: b }), [plan, onUpdatePlan]);
+  const handleUpdateTimeline = useCallback((t) => onUpdatePlan({ ...plan, timeline: t }), [plan, onUpdatePlan]);
+  const handleUpdateVendors = useCallback((v) => onUpdatePlan({ ...plan, vendors: v }), [plan, onUpdatePlan]);
 
   const s = {
     page:   { maxWidth: '80rem', margin: '0 auto', padding: '2rem 1rem 4rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' },
@@ -84,13 +90,17 @@ export default function PlanningDashboard({
       </div>
 
       {/* Tab Navigation */}
-      <div style={s.tabBar}>
+      <div style={s.tabBar} role="tablist" aria-label="Plan sections">
         {TABS.map(tab => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (
             <button
               key={tab.id}
+              role="tab"
+              aria-selected={active}
+              aria-controls={`tabpanel-${tab.id}`}
+              id={`tab-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.5rem',
@@ -118,10 +128,26 @@ export default function PlanningDashboard({
 
       {/* Module Content */}
       <div style={{ marginTop: '0.5rem' }}>
-        {activeTab === 'budget'   && <BudgetModule   budget={budget} totalBudget={totalBudget} onUpdateBudget={b => onUpdatePlan({ ...plan, budget: b })} onRefineBudget={onRefineBudget} isRefining={isRefiningBudget} />}
-        {activeTab === 'timeline' && <TimelineModule  timeline={timeline} onUpdateTimeline={t => onUpdatePlan({ ...plan, timeline: t })} eventDate={metadata.date} />}
-        {activeTab === 'vendors'  && <VendorsModule   vendors={vendors} onUpdateVendors={v => onUpdatePlan({ ...plan, vendors: v })} totalBudget={totalBudget} />}
-        {activeTab === 'ideas'    && <IdeasModule     ideas={ideas} onRegenerateIdeas={onRegenerateIdeas} isRegenerating={isRegeneratingIdeas} metadata={metadata} />}
+        {activeTab === 'budget' && (
+          <div role="tabpanel" id="tabpanel-budget" aria-labelledby="tab-budget">
+            <BudgetModule budget={budget} totalBudget={totalBudget} onUpdateBudget={handleUpdateBudget} onRefineBudget={onRefineBudget} isRefining={isRefiningBudget} />
+          </div>
+        )}
+        {activeTab === 'timeline' && (
+          <div role="tabpanel" id="tabpanel-timeline" aria-labelledby="tab-timeline">
+            <TimelineModule timeline={timeline} onUpdateTimeline={handleUpdateTimeline} eventDate={metadata.date} />
+          </div>
+        )}
+        {activeTab === 'vendors' && (
+          <div role="tabpanel" id="tabpanel-vendors" aria-labelledby="tab-vendors">
+            <VendorsModule vendors={vendors} onUpdateVendors={handleUpdateVendors} totalBudget={totalBudget} />
+          </div>
+        )}
+        {activeTab === 'ideas' && (
+          <div role="tabpanel" id="tabpanel-ideas" aria-labelledby="tab-ideas">
+            <IdeasModule ideas={ideas} onRegenerateIdeas={onRegenerateIdeas} isRegenerating={isRegeneratingIdeas} metadata={metadata} />
+          </div>
+        )}
       </div>
     </div>
   );

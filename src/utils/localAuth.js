@@ -9,7 +9,11 @@ const STORAGE_KEY_USER = 'auraplan_active_user';
 const STORAGE_KEY_ACCOUNTS = 'auraplan_registered_users';
 const STORAGE_KEY_PLANS_PREFIX = 'auraplan_user_plans_';
 
-// Default demo account pre-populated on the device for fast evaluation
+/**
+ * Default demo account pre-populated on the device for fast evaluation.
+ * NOTE: Credentials are stored in the client bundle (device-only, no server). Do not use
+ * this pattern for production apps that communicate with a real authentication server.
+ */
 const DEMO_ACCOUNT = {
   id: 'usr_demo_sophia',
   name: 'Sophia Hayes',
@@ -20,21 +24,40 @@ const DEMO_ACCOUNT = {
   createdAt: new Date().toISOString()
 };
 
+/** Module-level cache to avoid redundant localStorage reads within the same session */
+let _accountsCache = null;
+
 /**
- * Initialize default demo user on device if no accounts exist
+ * Initialize and cache the device accounts array.
+ * Reads from localStorage only on the first call per session.
+ * @returns {Array} Array of registered user objects
  */
 function initDeviceAccounts() {
+  if (_accountsCache) return _accountsCache;
   try {
     const raw = localStorage.getItem(STORAGE_KEY_ACCOUNTS);
     if (!raw) {
       const initial = [DEMO_ACCOUNT];
       localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(initial));
-      return initial;
+      _accountsCache = initial;
+      return _accountsCache;
     }
-    return JSON.parse(raw);
+    _accountsCache = JSON.parse(raw);
+    return _accountsCache;
   } catch (e) {
     console.error('Failed to access device accounts:', e);
-    return [DEMO_ACCOUNT];
+    _accountsCache = [DEMO_ACCOUNT];
+    return _accountsCache;
+  }
+}
+
+/** Persist accounts array to localStorage and update the in-memory cache */
+function persistAccounts(accounts) {
+  _accountsCache = accounts;
+  try {
+    localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(accounts));
+  } catch (e) {
+    console.error('Failed to persist accounts to device storage:', e);
   }
 }
 
@@ -87,7 +110,7 @@ export function registerUser({ name, email, password, avatar = '🎉' }) {
     };
 
     accounts.push(newUser);
-    localStorage.setItem(STORAGE_KEY_ACCOUNTS, JSON.stringify(accounts));
+    persistAccounts(accounts);
 
     // Save as current active session (excluding password)
     const { password: _, ...safeUser } = newUser;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { Clock, AlertCircle, Sparkles, Key } from 'lucide-react';
 import Navbar from './components/Navbar.jsx';
@@ -24,6 +24,9 @@ export default function App() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
 
+  /** Ref to clear previous toast timer before setting a new one (avoids memory leaks) */
+  const toastTimerRef = useRef(null);
+
   // Check health and load plan on mount
   useEffect(() => {
     checkApiHealth();
@@ -45,6 +48,13 @@ export default function App() {
     }
   }, []);
 
+  // Cleanup toast timer on unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   const checkApiHealth = async () => {
     try {
       const res = await fetch('/api/api-status');
@@ -61,13 +71,15 @@ export default function App() {
     }
   };
 
-  const showToast = (message, type = 'info') => {
+  /** Show a dismissing toast notification. Clears any previous timer first. */
+  const showToast = useCallback((message, type = 'info') => {
     setToastMessage({ message, type });
-    setTimeout(() => setToastMessage(null), 4000);
-  };
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), 4000);
+  }, []);
 
-  // Persist plan: permanently in localStorage if logged in, temporarily in sessionStorage if guest
-  const persistPlan = (plan) => {
+  /** Persist plan: permanently in localStorage if logged in, temporarily in sessionStorage if guest */
+  const persistPlan = useCallback((plan) => {
     if (currentUser) {
       savePlanToUserHistory(currentUser.id, plan);
       try {
@@ -80,9 +92,9 @@ export default function App() {
         console.warn('Session storage write error:', e);
       }
     }
-  };
+  }, [currentUser]);
 
-  const loadPlanById = async (id) => {
+  const loadPlanById = useCallback(async (id) => {
     try {
       setIsLoading(true);
       const res = await fetch(`/api/plan/${id}`);
@@ -100,10 +112,10 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [persistPlan, showToast]);
 
-  // Generate full plan via backend Gemini endpoint
-  const handleGeneratePlan = async (metadata) => {
+  /** Generate full plan via backend Gemini endpoint */
+  const handleGeneratePlan = useCallback(async (metadata) => {
     try {
       setIsLoading(true);
       const res = await fetch('/api/generate-plan', {
@@ -128,11 +140,7 @@ export default function App() {
         }
 
         // Trigger celebratory confetti
-        confetti({
-          particleCount: 80,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
+        confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
 
         // Update URL query string
         const newUrl = `${window.location.pathname}?planId=${data.plan.id}`;
@@ -148,10 +156,10 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [persistPlan, showToast]);
 
-  // Refine budget with natural language instruction
-  const handleRefineBudget = async (instruction) => {
+  /** Refine budget with natural language instruction */
+  const handleRefineBudget = useCallback(async (instruction) => {
     if (!currentPlan) return;
     try {
       setIsRefiningBudget(true);
@@ -186,20 +194,17 @@ export default function App() {
     } finally {
       setIsRefiningBudget(false);
     }
-  };
+  }, [currentPlan, persistPlan, showToast]);
 
-  // Regenerate 6 fresh surprise-me ideas
-  const handleRegenerateIdeas = async () => {
+  /** Regenerate 6 fresh surprise-me ideas */
+  const handleRegenerateIdeas = useCallback(async () => {
     if (!currentPlan) return;
     try {
       setIsRegeneratingIdeas(true);
       const res = await fetch('/api/regenerate-ideas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          metadata: currentPlan.metadata,
-          planId: currentPlan.id
-        })
+        body: JSON.stringify({ metadata: currentPlan.metadata, planId: currentPlan.id })
       });
       const data = await res.json();
       if (data.success && data.ideas) {
@@ -218,10 +223,10 @@ export default function App() {
     } finally {
       setIsRegeneratingIdeas(false);
     }
-  };
+  }, [currentPlan, persistPlan, showToast]);
 
-  // Sync plan modifications to backend store
-  const handleUpdatePlan = async (updatedPlan) => {
+  /** Sync plan modifications to backend store */
+  const handleUpdatePlan = useCallback(async (updatedPlan) => {
     setCurrentPlan(updatedPlan);
     persistPlan(updatedPlan);
     try {
@@ -233,17 +238,17 @@ export default function App() {
     } catch (err) {
       console.warn('Auto-save plan failed:', err);
     }
-  };
+  }, [persistPlan]);
 
-  const handleNewPlan = () => {
+  const handleNewPlan = useCallback(() => {
     setCurrentPlan(null);
     try {
       sessionStorage.removeItem('auraplan_temp_plan');
     } catch (e) {}
     window.history.pushState({}, '', window.location.pathname);
-  };
+  }, []);
 
-  const handleLoginSuccess = (user) => {
+  const handleLoginSuccess = useCallback((user) => {
     setCurrentUser(user);
     setShowLoginModal(false);
     if (currentPlan) {
@@ -255,9 +260,9 @@ export default function App() {
     } else {
       showToast(`Welcome back, ${user.name}!`, 'success');
     }
-  };
+  }, [currentPlan, showToast]);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     logoutUser();
     setCurrentUser(null);
     // Move active plan to temporary session storage
@@ -267,19 +272,23 @@ export default function App() {
       } catch (e) {}
     }
     showToast('Signed out. Active plan is now in temporary session mode.', 'info');
-  };
+  }, [currentPlan, showToast]);
 
-  const handleKeyUpdated = () => {
+  const handleKeyUpdated = useCallback(() => {
     setApiStatus('active');
     setApiAlertMessage(null);
     showToast('Gemini API key updated and active!', 'success');
-  };
+  }, [showToast]);
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#090a0f' }}>
       {/* Toast Notification */}
       {toastMessage && (
-        <div style={{ position: 'fixed', bottom: '1.5rem', right: '1.5rem', zIndex: 110 }}>
+        <div
+          role="status"
+          aria-live="polite"
+          style={{ position: 'fixed', bottom: '1.5rem', right: '1.5rem', zIndex: 110 }}
+        >
           <div style={{
             padding: '0.75rem 1.25rem', borderRadius: '12px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
