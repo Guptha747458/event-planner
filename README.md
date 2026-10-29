@@ -154,6 +154,53 @@ npm start
 
 ---
 
+## 🐳 Docker Deployment
+
+AuraPlan AI includes a production-ready, multi-stage Alpine Docker setup (`Dockerfile` & `docker-compose.yml`) for single-command containerized deployment.
+
+### Quick Start with Docker Compose
+
+1. **Ensure `.env` has your Gemini API key:**
+   ```env
+   GEMINI_API_KEY=your_actual_gemini_api_key_here
+   GEMINI_MODEL=gemini-3.5-flash-lite
+   ```
+
+2. **Build and launch the container in the background:**
+   ```bash
+   docker compose up --build -d
+   ```
+
+3. **Open the application:**
+   Visit **`http://localhost:3001`** in your browser. The single container runs both the Express backend API and serves the production-compiled Vite client.
+
+4. **View logs or check container status:**
+   ```bash
+   docker compose logs -f auraplan
+   docker compose ps
+   ```
+
+5. **Stop the container:**
+   ```bash
+   docker compose down
+   ```
+
+### Running with Docker CLI (Standalone)
+
+```bash
+# Build the Docker image
+docker build -t auraplan-ai .
+
+# Run with your Gemini API key
+docker run -d -p 3001:3001 \
+  -e GEMINI_API_KEY="your_actual_gemini_api_key_here" \
+  -e GEMINI_MODEL="gemini-3.5-flash-lite" \
+  --name auraplan-container \
+  auraplan-ai
+```
+
+---
+
 ## 🧪 Automated Testing
 
 AuraPlan AI includes 10 automated unit and integration tests across 3 suites running natively on Node.js test runner:
@@ -183,6 +230,9 @@ npm test
 
 ```
 event-planner/
+├── Dockerfile               # Multi-stage production Docker build (Node.js 20 Alpine)
+├── docker-compose.yml       # Docker Compose service definition & healthcheck
+├── .dockerignore            # Build context exclusions (node_modules, .env, dist)
 ├── .env                     # Local environment variables (GEMINI_API_KEY, GEMINI_MODEL)
 ├── .env.example             # Example environment template
 ├── package.json             # Project dependencies and npm scripts
