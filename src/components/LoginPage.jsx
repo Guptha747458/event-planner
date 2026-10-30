@@ -276,10 +276,10 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
 
   return (
     <div style={s.wrapper}>
-      <div style={s.card}>
+      <div style={s.card} role={isModal ? 'dialog' : undefined} aria-modal={isModal || undefined} aria-labelledby="login-title">
         {/* Optional Close Button */}
         {onClose && (
-          <button onClick={onClose} style={s.closeBtn} title="Close">
+          <button type="button" onClick={onClose} style={s.closeBtn} title="Close" aria-label="Close sign-in dialog">
             <X style={{ width: 16, height: 16 }} />
           </button>
         )}
@@ -300,7 +300,7 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
             </span>
           </div>
 
-          <h2 style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.25rem', fontWeight: 700, color: '#ffffff' }}>
+          <h2 id="login-title" style={{ fontFamily: "'Outfit', sans-serif", fontSize: '1.25rem', fontWeight: 700, color: '#ffffff' }}>
             {mode === 'login' ? 'Welcome Back to Your Planner' : 'Create On-Device Account'}
           </h2>
           <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.25rem' }}>
@@ -327,6 +327,8 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
             type="button"
             onClick={() => handleModeSwitch('login')}
             style={s.tabBtn(mode === 'login')}
+            aria-selected={mode === 'login'}
+            role="tab"
           >
             Sign In
           </button>
@@ -334,6 +336,8 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
             type="button"
             onClick={() => handleModeSwitch('register')}
             style={s.tabBtn(mode === 'register')}
+            aria-selected={mode === 'register'}
+            role="tab"
           >
             Create Account
           </button>
@@ -341,7 +345,7 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
 
         {/* Feedback alerts */}
         {error && (
-          <div style={{
+          <div role="alert" style={{
             display: 'flex', alignItems: 'center', gap: '0.5rem',
             padding: '0.65rem 0.85rem', borderRadius: '10px',
             background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.28)',
@@ -353,7 +357,7 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
         )}
 
         {successMsg && (
-          <div style={{
+          <div role="status" aria-live="polite" style={{
             display: 'flex', alignItems: 'center', gap: '0.5rem',
             padding: '0.65rem 0.85rem', borderRadius: '10px',
             background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)',
@@ -369,10 +373,11 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
           {mode === 'register' && (
             <>
               <div style={s.inputGroup}>
-                <label style={s.label}>Full Name</label>
+                <label htmlFor="account-name" style={s.label}>Full Name</label>
                 <div style={s.inputWrapper}>
                   <User style={s.inputIcon} />
                   <input
+                    id="account-name"
                     type="text"
                     required
                     placeholder="e.g. Jordan Miller"
@@ -385,13 +390,15 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
 
               {/* Avatar Selector */}
               <div style={s.inputGroup}>
-                <label style={s.label}>Choose Organizer Icon</label>
+                <span style={s.label} id="avatar-label">Choose Organizer Icon</span>
                 <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap' }}>
                   {AVATAR_OPTIONS.map((av) => (
                     <button
                       type="button"
                       key={av}
                       onClick={() => setSelectedAvatar(av)}
+                      aria-label={`Choose ${av} organizer icon`}
+                      aria-pressed={selectedAvatar === av}
                       style={{
                         padding: '0.4rem 0.65rem',
                         borderRadius: '8px',
@@ -410,10 +417,11 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
           )}
 
           <div style={s.inputGroup}>
-            <label style={s.label}>Email Address</label>
+            <label htmlFor="account-email" style={s.label}>Email Address</label>
             <div style={s.inputWrapper}>
               <Mail style={s.inputIcon} />
               <input
+                id="account-email"
                 type="email"
                 required
                 placeholder="name@example.com"
@@ -425,10 +433,11 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
           </div>
 
           <div style={s.inputGroup}>
-            <label style={s.label}>Password</label>
+            <label htmlFor="account-password" style={s.label}>Password</label>
             <div style={s.inputWrapper}>
               <Lock style={s.inputIcon} />
               <input
+                id="account-password"
                 type={showPassword ? 'text' : 'password'}
                 required
                 placeholder="Enter password"
@@ -439,6 +448,7 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
                 style={{
                   position: 'absolute',
                   right: '0.75rem',
@@ -511,4 +521,3 @@ export default function LoginPage({ onLoginSuccess, onClose, isModal = false }) 
     </div>
   );
 }
-

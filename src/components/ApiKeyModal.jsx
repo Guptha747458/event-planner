@@ -180,7 +180,7 @@ export default function ApiKeyModal({ onClose, onKeyUpdated }) {
 
   return (
     <div style={s.overlay} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={s.modal}>
+      <div style={s.modal} role="dialog" aria-modal="true" aria-labelledby="api-config-title">
         {/* Header */}
         <div style={s.header}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -192,7 +192,7 @@ export default function ApiKeyModal({ onClose, onKeyUpdated }) {
               <Key style={{ width: 16, height: 16, color: '#fff' }} />
             </div>
             <div>
-              <h3 style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 700, fontSize: '1.1rem', color: '#ffffff' }}>
+              <h3 id="api-config-title" style={{ fontFamily: "'Outfit', sans-serif", fontWeight: 700, fontSize: '1.1rem', color: '#ffffff' }}>
                 Gemini GenAI &amp; API Configuration
               </h3>
               <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
@@ -200,7 +200,7 @@ export default function ApiKeyModal({ onClose, onKeyUpdated }) {
               </span>
             </div>
           </div>
-          <button onClick={onClose} style={s.closeBtn} title="Close">
+          <button type="button" onClick={onClose} style={s.closeBtn} title="Close" aria-label="Close API configuration dialog">
             <X style={{ width: 16, height: 16 }} />
           </button>
         </div>
@@ -234,7 +234,7 @@ export default function ApiKeyModal({ onClose, onKeyUpdated }) {
 
         {/* Feedback Alert */}
         {feedback && (
-          <div style={{
+          <div role="status" aria-live="polite" style={{
             padding: '0.65rem 0.85rem',
             borderRadius: '10px',
             fontSize: '0.75rem',
@@ -265,11 +265,12 @@ export default function ApiKeyModal({ onClose, onKeyUpdated }) {
         {/* Form */}
         <form onSubmit={handleSaveAndTest} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           <div>
-            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', display: 'block', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
+            <label htmlFor="gemini-api-key" style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', display: 'block', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
               Add / Update Gemini API Key
             </label>
             <div style={{ position: 'relative' }}>
               <input
+                id="gemini-api-key"
                 type={showKey ? 'text' : 'password'}
                 placeholder="Paste new Gemini API Key (starts with AIzaSy...)"
                 value={apiKey}
@@ -279,6 +280,7 @@ export default function ApiKeyModal({ onClose, onKeyUpdated }) {
               <button
                 type="button"
                 onClick={() => setShowKey(!showKey)}
+                aria-label={showKey ? 'Hide API key' : 'Show API key'}
                 style={{
                   position: 'absolute',
                   right: '0.75rem',
@@ -297,10 +299,10 @@ export default function ApiKeyModal({ onClose, onKeyUpdated }) {
           </div>
 
           <div>
-            <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', display: 'block', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
+            <label htmlFor="gemini-model" style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', display: 'block', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
               Target Gemini Model
             </label>
-            <select value={model} onChange={(e) => setModel(e.target.value)} style={s.select}>
+            <select id="gemini-model" value={model} onChange={(e) => setModel(e.target.value)} style={s.select}>
               <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Recommended / Fast)</option>
               <option value="gemini-flash-latest">gemini-flash-latest (Standard Flash)</option>
               <option value="gemini-2.5-flash">gemini-2.5-flash</option>
@@ -345,4 +347,3 @@ export default function ApiKeyModal({ onClose, onKeyUpdated }) {
     </div>
   );
 }
-

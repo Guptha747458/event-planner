@@ -11,6 +11,52 @@ import { planStorage } from './planStorage.js';
 
 const router = express.Router();
 
+const MAX_TEXT_LENGTH = 160;
+const requestTimestamps = new Map();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 20;
+
+function clientKey(req) {
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+function rateLimitExpensiveRequests(req, res, next) {
+  const now = Date.now();
+  const key = clientKey(req);
+  const recent = (requestTimestamps.get(key) || []).filter(
+    (timestamp) => now - timestamp < RATE_LIMIT_WINDOW_MS
+  );
+  if (recent.length >= RATE_LIMIT_MAX_REQUESTS) {
+    res.setHeader('Retry-After', '60');
+    return res.status(429).json({
+      success: false,
+      message: 'Too many requests. Please try again in a minute.'
+    });
+  }
+  recent.push(now);
+  requestTimestamps.set(key, recent);
+  return next();
+}
+
+function text(value, fallback, maxLength = MAX_TEXT_LENGTH) {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, maxLength) : fallback;
+}
+
+function boundedNumber(value, fallback, min, max) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= min && number <= max ? number : fallback;
+}
+
+function safeErrorResponse(res, message, error) {
+  console.error(message, error);
+  return res.status(500).json({
+    success: false,
+    message
+  });
+}
+
 /**
  * GET /api/api-status
  * Check current Gemini AI status and active model.
@@ -29,6 +75,12 @@ router.get('/api-status', (req, res) => {
 router.post('/set-api-key', async (req, res) => {
   try {
     const { apiKey, model, testFirst = true } = req.body || {};
+    if (apiKey !== undefined && (typeof apiKey !== 'string' || apiKey.trim().length > 256)) {
+      return res.status(400).json({ success: false, message: 'API key is invalid.' });
+    }
+    if (model !== undefined && (typeof model !== 'string' || model.trim().length > 100)) {
+      return res.status(400).json({ success: false, message: 'Model name is invalid.' });
+    }
 
     if (!apiKey && !model) {
       return res.status(400).json({
@@ -55,12 +107,7 @@ router.post('/set-api-key', async (req, res) => {
       ...updated
     });
   } catch (err) {
-    console.error('Error updating API key:', err);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to update API settings.',
-      error: err.message
-    });
+    return safeErrorResponse(res, 'Failed to update API settings.', err);
   }
 });
 
@@ -70,6 +117,12 @@ router.post('/set-api-key', async (req, res) => {
  */
 router.post('/test-api-key', async (req, res) => {
   const { apiKey, model } = req.body || {};
+  if (typeof apiKey !== 'string' || apiKey.trim().length > 256) {
+    return res.status(400).json({ success: false, message: 'API key is invalid.' });
+  }
+  if (model !== undefined && (typeof model !== 'string' || model.trim().length > 100)) {
+    return res.status(400).json({ success: false, message: 'Model name is invalid.' });
+  }
   const result = await testGeminiConnection(apiKey, model);
   return res.status(result.ok ? 200 : 400).json({
     success: result.ok,
@@ -82,7 +135,7 @@ router.post('/test-api-key', async (req, res) => {
  * POST /api/generate-plan
  * Accepts event metadata, returns JSON containing budget, timeline, vendors, and ideas.
  */
-router.post('/generate-plan', async (req, res) => {
+router.post('/generate-plan', rateLimitExpensiveRequests, async (req, res) => {
   try {
     const metadata = req.body || {};
     const options = {
@@ -92,12 +145,12 @@ router.post('/generate-plan', async (req, res) => {
 
     // Fallback defaults if fields missing
     const sanitizedMetadata = {
-      eventType: metadata.eventType || 'Wedding',
-      date: metadata.date || '2026-10-15',
-      guestCount: Number(metadata.guestCount) || 100,
-      totalBudget: Number(metadata.totalBudget) || 15000,
-      city: metadata.city || 'San Francisco, CA',
-      stylePreference: metadata.stylePreference || 'Rustic Elegance'
+      eventType: text(metadata.eventType, 'Wedding'),
+      date: text(metadata.date, '2026-10-15', 30),
+      guestCount: boundedNumber(metadata.guestCount, 100, 1, 100000),
+      totalBudget: boundedNumber(metadata.totalBudget, 15000, 1, 100000000),
+      city: text(metadata.city, 'San Francisco, CA'),
+      stylePreference: text(metadata.stylePreference, 'Rustic Elegance')
     };
 
     const plan = await generatePlanWithGemini(sanitizedMetadata, options);
@@ -111,12 +164,7 @@ router.post('/generate-plan', async (req, res) => {
       fallbackReason: plan._fallbackReason || null
     });
   } catch (error) {
-    console.error('Error generating plan:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to generate plan. Please try again.',
-      error: error.message
-    });
+    return safeErrorResponse(res, 'Failed to generate plan. Please try again.', error);
   }
 });
 
@@ -124,7 +172,7 @@ router.post('/generate-plan', async (req, res) => {
  * POST /api/refine-budget
  * Accepts current allocation + user instruction, returns adjusted numbers.
  */
-router.post('/refine-budget', async (req, res) => {
+router.post('/refine-budget', rateLimitExpensiveRequests, async (req, res) => {
   try {
     const { currentBudget, instruction, totalBudget, planId, model, apiKey } = req.body || {};
     const options = {
@@ -139,7 +187,20 @@ router.post('/refine-budget', async (req, res) => {
       });
     }
 
-    const numericTotal = Number(totalBudget) || Object.values(currentBudget).reduce((a, b) => a + Number(b), 0);
+    if (
+      typeof currentBudget !== 'object' ||
+      Array.isArray(currentBudget) ||
+      Object.keys(currentBudget).length > 20 ||
+      typeof instruction !== 'string' ||
+      instruction.trim().length > 1000
+    ) {
+      return res.status(400).json({ success: false, message: 'Budget or instruction is invalid.' });
+    }
+    const currentBudgetTotal = Object.values(currentBudget).reduce((sum, value) => {
+      const amount = Number(value);
+      return sum + (Number.isFinite(amount) && amount >= 0 ? amount : 0);
+    }, 0);
+    const numericTotal = boundedNumber(totalBudget, currentBudgetTotal, 1, 100000000);
     const refined = await refineBudgetWithGemini(currentBudget, instruction, numericTotal, options);
 
     if (planId && planStorage.has(planId)) {
@@ -153,12 +214,7 @@ router.post('/refine-budget', async (req, res) => {
       budget: refined
     });
   } catch (error) {
-    console.error('Error refining budget:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to refine budget.',
-      error: error.message
-    });
+    return safeErrorResponse(res, 'Failed to refine budget.', error);
   }
 });
 
@@ -166,7 +222,7 @@ router.post('/refine-budget', async (req, res) => {
  * POST /api/regenerate-ideas
  * Accepts event context, returns fresh set of 6 ideas.
  */
-router.post('/regenerate-ideas', async (req, res) => {
+router.post('/regenerate-ideas', rateLimitExpensiveRequests, async (req, res) => {
   try {
     const { metadata, planId, model, apiKey } = req.body || {};
     const options = {
@@ -193,12 +249,7 @@ router.post('/regenerate-ideas', async (req, res) => {
       ideas: freshIdeas
     });
   } catch (error) {
-    console.error('Error regenerating ideas:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to regenerate ideas.',
-      error: error.message
-    });
+    return safeErrorResponse(res, 'Failed to regenerate ideas.', error);
   }
 });
 
